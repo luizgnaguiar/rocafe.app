@@ -21,10 +21,36 @@ final class DatabaseManager {
             
             let databaseURL = directoryURL.appendingPathComponent("rocafe.sqlite")
             
-            dbQueue = try DatabaseQueue(path: databaseURL.path)
+            var config = Configuration()
+            config.foreignKeysEnabled = true // Ensure foreign keys are enforced
+            #if DEBUG
+            config.trace = { print($0) } // Logs SQL statements in DEBUG mode
+            #endif
+            
+            dbQueue = try DatabaseQueue(path: databaseURL.path, configuration: config)
+            
+            // Set PRAGMAs for robustness
+            try dbQueue.write { db in
+                try db.execute(sql: "PRAGMA journal_mode = WAL")
+                try db.execute(sql: "PRAGMA synchronous = FULL")
+            }
             
             // Run migrations
             try migrator.migrate(dbQueue)
+            
+            // Check for database corruption after migrations
+            try dbQueue.read { db in
+                if try !db.isReadable {
+                    // In a real app, this should trigger a UI to guide the user to a restore process.
+                    fatalError("Database is corrupted or unreadable.")
+                }
+                
+                let integrity = try String.fetchOne(db, sql: "PRAGMA integrity_check(1)")
+                if integrity != "ok" {
+                    // This is a critical error. Guide user to restore from backup.
+                    fatalError("Database integrity check failed: \(integrity ?? "unknown error")")
+                }
+            }
             
         } catch {
             // This is a critical error. In a real app, you might want to show an

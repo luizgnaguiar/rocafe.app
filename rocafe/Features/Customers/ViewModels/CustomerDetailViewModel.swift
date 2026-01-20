@@ -5,42 +5,42 @@ import Combine
 class CustomerDetailViewModel: ObservableObject {
     
     @Published var customer: Customer
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+    @Published var viewState: ViewState<Customer> = .idle
     
-    private let repository: CustomerRepository
+    private let service: CustomerService
     
-    init(customer: Customer?, repository: CustomerRepository = CustomerRepositoryImpl()) {
+    init(customer: Customer?, service: CustomerService = CustomerService()) {
         self.customer = customer ?? Customer(id: nil, name: "", isActive: true)
-        self.repository = repository
+        self.service = service
     }
     
     func saveCustomer() {
-        guard validate() else { return }
+        viewState = .loading
         
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            var customerToSave = self.customer
-            try repository.save(&customerToSave)
-            self.customer = customerToSave
-        } catch {
-            errorMessage = "Falha ao salvar o cliente: \(error.localizedDescription)"
+        Task {
+            do {
+                var customerToSave = self.customer
+                try service.save(customer: &customerToSave)
+                self.customer = customerToSave
+                viewState = .success(customerToSave)
+            } catch {
+                viewState = .error(error)
+            }
         }
-        
-        isLoading = false
     }
     
-    private func validate() -> Bool {
-        if customer.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errorMessage = "O nome do cliente é obrigatório."
-            return false
+    func deleteCustomer() {
+        viewState = .loading
+        
+        Task {
+            do {
+                try service.delete(customer: self.customer)
+                // On success, we can't show the deleted customer,
+                // so we pass a copy to the success state for any listening view.
+                viewState = .success(self.customer)
+            } catch {
+                viewState = .error(error)
+            }
         }
-        
-        // TODO: Add CPF validation if needed
-        
-        errorMessage = nil
-        return true
     }
 }

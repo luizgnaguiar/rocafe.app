@@ -5,22 +5,21 @@ import Combine
 class ExpenseDetailViewModel: ObservableObject {
     
     @Published var expense: Expense
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+    @Published var viewState: ViewState<Expense> = .idle
     
     // For pickers
     @Published var allSuppliers: [Supplier] = []
     
-    private let expenseRepo: ExpenseRepository
+    private let expenseService: ExpenseService
     private let supplierRepo: SupplierRepository
     
     init(
         expense: Expense?,
-        expenseRepo: ExpenseRepository = ExpenseRepositoryImpl(),
+        expenseService: ExpenseService = ExpenseService(),
         supplierRepo: SupplierRepository = SupplierRepositoryImpl()
     ) {
         self.expense = expense ?? Expense(id: nil, description: "", category: .contas, amount: 0, dueDate: Date(), isPaid: false, wasAdjusted: false)
-        self.expenseRepo = expenseRepo
+        self.expenseService = expenseService
         self.supplierRepo = supplierRepo
     }
     
@@ -29,32 +28,18 @@ class ExpenseDetailViewModel: ObservableObject {
     }
     
     func saveExpense() {
-        guard validate() else { return }
+        viewState = .loading
         
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            var expenseToSave = self.expense
-            try expenseRepo.save(&expenseToSave)
-            self.expense = expenseToSave
-        } catch {
-            errorMessage = "Falha ao salvar a despesa: \(error.localizedDescription)"
+        Task {
+            do {
+                var expenseToSave = self.expense
+                try expenseService.save(expense: &expenseToSave)
+                self.expense = expenseToSave // Update the view model with the saved (potentially modified) expense
+                viewState = .success(expenseToSave)
+            } catch {
+                // Now we catch a specific, typed error from the service layer.
+                viewState = .error(error)
+            }
         }
-        
-        isLoading = false
-    }
-    
-    private func validate() -> Bool {
-        if expense.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errorMessage = "A descrição da despesa é obrigatória."
-            return false
-        }
-        if expense.amount <= 0 {
-            errorMessage = "O valor da despesa deve ser maior que zero."
-            return false
-        }
-        errorMessage = nil
-        return true
     }
 }

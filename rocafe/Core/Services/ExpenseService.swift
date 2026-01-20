@@ -1,5 +1,22 @@
 import Foundation
 
+enum ExpenseServiceError: Error, LocalizedError {
+    case expenseNotFound(id: Int64)
+    case descriptionIsEmpty
+    case invalidAmount(amount: Decimal)
+    
+    var errorDescription: String? {
+        switch self {
+        case .expenseNotFound(let id):
+            return "A despesa com o ID \(id) não foi encontrada."
+        case .descriptionIsEmpty:
+            return "A descrição da despesa é obrigatória."
+        case .invalidAmount(let amount):
+            return "O valor da despesa (\(amount)) deve ser maior que zero."
+        }
+    }
+}
+
 class ExpenseService {
     
     private let recurringExpenseRepo: RecurringExpenseRepository
@@ -11,6 +28,21 @@ class ExpenseService {
     ) {
         self.recurringExpenseRepo = recurringExpenseRepo
         self.expenseRepo = expenseRepo
+    }
+    
+    /// Saves an expense after validating its business rules.
+    /// - Parameter expense: The expense to be saved.
+    /// - Throws: `ExpenseServiceError` if validation fails.
+    func save(expense: inout Expense) throws {
+        // Business logic validation lives here, not in the ViewModel.
+        if expense.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw ExpenseServiceError.descriptionIsEmpty
+        }
+        if expense.amount <= 0 {
+            throw ExpenseServiceError.invalidAmount(amount: expense.amount)
+        }
+        
+        try expenseRepo.save(&expense)
     }
     
     /// Checks for and generates any recurring expenses that are due for the current month.
@@ -35,8 +67,7 @@ class ExpenseService {
     ///   - paymentDate: The date the expense was paid.
     func payExpense(expenseId: Int64, paymentDate: Date) throws {
         guard var expense = expenseRepo.get(id: expenseId) else {
-            // In a real app, throw a custom error
-            throw NSError(domain: "ExpenseService", code: 404, userInfo: [NSLocalizedDescriptionKey: "Expense not found"])
+            throw ExpenseServiceError.expenseNotFound(id: expenseId)
         }
         
         expense.isPaid = true

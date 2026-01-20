@@ -1,66 +1,86 @@
 import Foundation
 import GRDB
 
+enum RecipeServiceError: Error, LocalizedError {
+    case recipeNotFound(id: Int64)
+    case productForRecipeNotFound(id: Int64)
+    case ingredientNotFound(id: Int64)
+    case negativeQuantity
+    case circularReference(path: [String])
+    case databaseError(Error)
+    
+    var errorDescription: String? {
+        switch self {
+        case .recipeNotFound(let id):
+            return "A receita com ID \(id) não foi encontrada."
+        case .productForRecipeNotFound(let id):
+            return "O produto associado à receita (ID: \(id)) não foi encontrado."
+        case .ingredientNotFound(let id):
+            return "O ingrediente com ID \(id) não foi encontrado."
+        case .negativeQuantity:
+            return "A quantidade de um ingrediente não pode ser negativa ou zero."
+        case .circularReference(let path):
+            return "Referência circular detectada: \(path.joined(separator: " -> ")). Uma receita não pode ser ingrediente de si mesma."
+        case .databaseError(let error):
+            return "Erro no banco de dados: \(error.localizedDescription)"
+        }
+    }
+}
+
+
 class RecipeService {
     
-    private let recipeRepo: RecipeRepository
-    private let productRepo: ProductRepository
-    // ... other repositories for ingredients, versions, etc.
+    private let dbQueue: DatabaseQueue
     
-    init(
-        recipeRepo: RecipeRepository = RecipeRepositoryImpl(),
-        productRepo: ProductRepository = ProductRepositoryImpl()
-    ) {
-        self.recipeRepo = recipeRepo
-        self.productRepo = productRepo
+    init(dbQueue: DatabaseQueue = DatabaseManager.shared.dbQueue) {
+        self.dbQueue = dbQueue
     }
     
-    /// Updates a recipe and creates a version snapshot.
-    /// This is a complex operation that should be handled within a database transaction.
-    func updateRecipe(recipeId: Int64, changes: () -> Void) {
-        // --- Placeholder Logic ---
-        // 1. Start a database transaction.
-        // 2. Fetch the current state of the recipe and its ingredients.
-        // 3. Serialize the current state to a JSON string (snapshot).
-        // 4. Create a new RecipeVersion object with the snapshot, a new version number,
-        //    and a description of the changes. Save it.
-        // 5. Apply the changes to the recipe and its ingredients.
-        // 6. Recalculate the recipe's cost (see below).
-        // 7. Save the updated recipe.
-        // 8. Commit the transaction. If any step fails, roll back.
-        print("Updating recipe \(recipeId) and creating a version snapshot...")
+    /// Saves a recipe and its ingredients within a single transaction.
+    func save(recipe: inout Recipe, ingredients: [RecipeIngredient]) throws {
+        
+        for ingredient in ingredients {
+            if ingredient.quantity <= 0 {
+                throw RecipeServiceError.negativeQuantity
+            }
+            // Further validation for ingredient existence can be added here.
+        }
+        
+        try dbQueue.writeInTransaction { db in
+            try recipe.save(db)
+            
+            // Delete old ingredients and save new ones
+            try RecipeIngredient.deleteAll(db, request: RecipeIngredient.filter(RecipeIngredient.Columns.recipeId == recipe.id))
+            for var ingredient in ingredients {
+                ingredient.recipeId = recipe.id
+                try ingredient.save(db)
+            }
+            
+            // The cost should be recalculated after saving
+            return .commit
+        }
     }
     
     /// Recursively recalculates the cost of a recipe and all parent recipes that use it.
     /// This should be run in a background thread to avoid blocking the UI.
-    func recalculateCost(for recipeId: Int64) async {
-        // --- Placeholder Logic ---
-        // 1. Fetch the recipe and its ingredients (raw materials and sub-recipes).
-        // 2. For each ingredient, fetch its cost.
-        //    - If it's a raw material, get its `purchasePrice` from the Product table.
-        //    - If it's a sub-recipe, get its `totalCost`. This is the recursive part.
-        // 3. Sum up the costs of all ingredients based on their quantity.
-        // 4. Update the `totalCost` on the recipe object and save it.
-        // 5. After updating, find all other recipes that use this recipe as an ingredient
-        //    and recursively call this function on them to update their costs as well.
-        // 6. This also needs to handle potential circular references to prevent infinite loops.
-        //    A set of visited recipe IDs can be used to track the path.
+    func recalculateCost(for recipeId: Int64) async throws {
+        // --- Full implementation requires complex graph traversal ---
+        // Placeholder for the logic described in the technical plan.
+        // 1. Fetch recipe and ingredients.
+        // 2. For each ingredient, get its cost (recursively if it's a sub-recipe).
+        // 3. Sum costs and update the recipe's `totalCost`.
+        // 4. Find parent recipes and trigger recalculation for them.
+        // 5. Must handle circular references.
         print("Recalculating cost for recipe \(recipeId)...")
     }
     
     /// Checks for circular references when adding an ingredient to a recipe.
-    /// - Parameters:
-    ///   - recipe: The recipe being edited.
-    ///   - ingredient: The ingredient (which could be another recipe) being added.
-    /// - Returns: `true` if a circular reference would be created, `false` otherwise.
-    func checkForCircularReference(recipe: Recipe, ingredient: Recipe) -> Bool {
-        // --- Placeholder Logic ---
+    /// - Throws: `RecipeServiceError.circularReference` if a cycle is detected.
+    func checkForCircularReference(recipe: Recipe, newIngredient: Recipe) throws {
+        // --- Placeholder Logic using DFS ---
         // This can be solved using a graph traversal algorithm like Depth First Search (DFS).
-        // 1. Start with the ingredient recipe.
-        // 2. Traverse down its ingredients list.
-        // 3. If at any point you encounter the original `recipe`, you have a cycle.
-        // 4. Keep a set of visited nodes to avoid infinite loops in complex, non-circular graphs.
+        // For now, we will just have the function signature.
         print("Checking for circular references...")
-        return false // Placeholder
+        // if cycle detected { throw RecipeServiceError.circularReference(...) }
     }
 }
