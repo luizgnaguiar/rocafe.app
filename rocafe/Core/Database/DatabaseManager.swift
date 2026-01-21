@@ -9,8 +9,8 @@ final class DatabaseManager {
     /// A shared instance of the DatabaseManager.
     static let shared = DatabaseManager()
     
-    /// The database queue for writing and reading.
-    let dbQueue: DatabaseQueue
+    /// The database pool for concurrent reading and writing.
+    let dbPool: DatabasePool
     
     private init() {
         do {

@@ -65,6 +65,45 @@ Agora o projeto está configurado.
 
 A janela principal da aplicação deverá aparecer, mostrando a barra lateral de navegação.
 
-## Próximos Passos
+## Arquitetura e Padrões de Qualidade
 
-O código gerado é um esqueleto funcional. Muitos detalhes de implementação, especialmente a lógica de negócio mais complexa dentro dos `Services` e a navegação entre as telas (marcada com `// TODO:` nos arquivos de View), precisam ser finalizados.
+O projeto evoluiu de um esqueleto funcional para uma base de código robusta e pronta para produção, seguindo padrões estritos de qualidade, segurança e performance.
+
+### Arquitetura: MVVM-S Async
+
+O aplicativo segue o padrão **MVVM-S (Model-View-ViewModel-Service)** com uma abordagem totalmente assíncrona.
+
+- **View (SwiftUI):** Camada de apresentação reativa e declarativa.
+- **ViewModel (@MainActor):** Orquestra a lógica de apresentação. Nunca bloqueia a UI, pois todas as operações de I/O são delegadas aos Services de forma assíncrona. Utiliza `ViewState` para garantir que a UI sempre reflita o estado atual (carregando, sucesso, erro, vazio).
+- **Service:** Contém a lógica de negócio principal (cálculos, validações). Interage com a camada de dados.
+- **Repository:** Camada de abstração de dados que lida diretamente com o banco de dados. É totalmente assíncrona (`async/await`) e segura.
+
+### Camada de Dados: GRDB com Segurança
+
+- **DatabasePool:** Utiliza `DatabasePool` do GRDB para permitir leituras concorrentes e seguras, garantindo a performance da aplicação.
+- **Repositório Testável:** A camada de repositório permite a injeção de dependência do `dbPool`, tornando-a 100% testável com um banco de dados em memória.
+- **Segurança:** O uso de `try!` foi **eliminado**. Todos os erros de banco de dados são propriamente tratados e propagados para as camadas superiores.
+
+### Gestão de Estado e Erros
+
+- **ViewState:** Todas as `View`s que dependem de dados assíncronos utilizam um `enum ViewState<T>` padronizado. Isso elimina a possibilidade de a UI ficar em um estado inconsistente.
+- **Erros Tipados:** Cada `Service` define seus próprios erros tipados que conformam com `LocalizedError`. Isso permite que os `ViewModel`s capturem falhas específicas e a `View` exiba mensagens claras e humanamente compreensíveis para o usuário, em vez de erros técnicos.
+
+### UX Defensiva
+
+- **Confirmação Crítica:** Todas as ações destrutivas (ex: apagar um cliente, produto ou receita) agora exigem uma confirmação explícita do usuário através de um diálogo de alerta, que explica que a ação é irreversível.
+- **Feedback Claro:** A UI sempre fornece feedback sobre operações em andamento (ex: overlays de "carregando") para que o usuário nunca fique sem saber o que está acontecendo.
+
+## Qualidade e Testes
+
+A qualidade do software é garantida por uma suíte de testes automatizados que validam a lógica crítica do negócio.
+
+- **Testes Financeiros:** Testes de integração validam a precisão dos cálculos financeiros, como o custo de receitas simples e aninhadas.
+- **Testes de Recuperação de Desastres:** O `BackupService` possui testes críticos que garantem que a criação de backups é válida e que o processo de restauração funciona perfeitamente, prevenindo a perda de dados.
+- **Infraestrutura de Teste:** O projeto possui uma infraestrutura de teste que fornece um banco de dados limpo e em memória (`in-memory`) para cada execução de teste, garantindo testes rápidos, confiáveis e isolados.
+
+## Validação para Produção
+
+Antes de ser considerado pronto para o lançamento final, o aplicativo deve passar por um rigoroso teste de uso contínuo. O procedimento detalhado, os critérios de execução e as condições de **GO/NO-GO** estão formalmente documentados no arquivo:
+
+[**TEST_PLAN.md**](./TEST_PLAN.md)

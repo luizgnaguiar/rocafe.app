@@ -1,5 +1,10 @@
 import Foundation
 
+protocol StandardViewModel: ObservableObject {
+    associatedtype DataType
+    var viewState: ViewState<DataType> { get set }
+}
+
 /// A generic enum to represent the state of a view or a view model, especially for operations involving asynchronous data fetching or processing.
 enum ViewState<T> {
     /// The initial or idle state.
@@ -7,6 +12,9 @@ enum ViewState<T> {
     
     /// The state while data is being loaded or processed.
     case loading
+    
+    /// The state when data has been loaded but the result is empty.
+    case empty
     
     /// The state when the operation has failed.
     /// - Parameter error: The error that occurred.
@@ -25,6 +33,8 @@ extension ViewState: Equatable where T: Equatable {
         case (.idle, .idle):
             return true
         case (.loading, .loading):
+            return true
+        case (.empty, .empty):
             return true
         case (.error(let lhsError), .error(let rhsError)):
             return lhsError.localizedDescription == rhsError.localizedDescription

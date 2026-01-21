@@ -1,54 +1,58 @@
 import XCTest
 import GRDB
-@testable import rocafe // Import your app module
+@testable import rocafe
 
+@MainActor
 final class CustomerServiceTests: XCTestCase {
 
-    private var dbQueue: DatabaseQueue!
+    private var dbPool: DatabasePool!
     private var customerService: CustomerService!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        // Create a fresh, in-memory database for each test
-        dbQueue = try TestDatabase.newQueue()
-        
-        // Initialize repositories and services with the test database
-        let customerRepo = CustomerRepositoryImpl(dbQueue: dbQueue)
+        dbPool = try TestDatabase.newPool()
+        let customerRepo = CustomerRepositoryImpl(dbPool: dbPool)
         customerService = CustomerService(repository: customerRepo)
     }
 
     override func tearDownWithError() throws {
-        dbQueue = nil
+        dbPool = nil
         customerService = nil
         try super.tearDownWithError()
     }
 
     // MARK: - Unit Tests for Save
 
-    func testSaveCustomer_whenNameIsEmpty_throwsError() {
-        var newCustomer = Customer(id: nil, name: "  ", isActive: true) // Empty name
+    func testSaveCustomer_whenNameIsEmpty_throwsError() async throws {
+        var newCustomer = Customer(id: nil, name: "  ", isActive: true)
         
-        XCTAssertThrowsError(try customerService.save(customer: &newCustomer)) { error in
+        do {
+            try await customerService.save(customer: &newCustomer)
+            XCTFail("Should have thrown an error")
+        } catch {
             XCTAssertEqual(error as? CustomerServiceError, CustomerServiceError.nameIsEmpty)
         }
     }
     
-    func testSaveCustomer_whenEmailIsInvalid_throwsError() {
+    func testSaveCustomer_whenEmailIsInvalid_throwsError() async throws {
         var newCustomer = Customer(id: nil, name: "Test User", email: "invalid-email", isActive: true)
         
-        XCTAssertThrowsError(try customerService.save(customer: &newCustomer)) { error in
+        do {
+            try await customerService.save(customer: &newCustomer)
+            XCTFail("Should have thrown an error")
+        } catch {
             XCTAssertEqual(error as? CustomerServiceError, CustomerServiceError.emailInvalid)
         }
     }
     
-    func testSaveCustomer_whenValid_succeeds() throws {
+    func testSaveCustomer_whenValid_succeeds() async throws {
         var newCustomer = Customer(id: nil, name: "Valid Customer", isActive: true)
         
-        try customerService.save(customer: &newCustomer)
+        try await customerService.save(customer: &newCustomer)
         
-        XCTAssertNotNil(newCustomer.id) // Should have an ID after saving
+        XCTAssertNotNil(newCustomer.id)
         
-        let savedCustomer = try dbQueue.read { db in
+        let savedCustomer = try await dbPool.read { db in
             try Customer.fetchOne(db, key: newCustomer.id)
         }
         
@@ -57,44 +61,39 @@ final class CustomerServiceTests: XCTestCase {
 
     // MARK: - Integration Tests for Delete
 
-    func testDeleteCustomer_whenCustomerHasPayments_throwsCannotDeleteError() throws {
-        // 1. Setup: Create a customer and a payment for them
+    func testDeleteCustomer_whenCustomerHasPayments_throwsCannotDeleteError() async throws {
+        // 1. Setup
         var customer = Customer(id: nil, name: "Customer With Payment", isActive: true)
-        try dbQueue.write { db in
+        try await dbPool.write { db in
             try customer.save(db)
             var payment = CustomerPayment(id: nil, customerId: customer.id!, date: Date(), amount: 100, paymentMethod: .cash)
             try payment.save(db)
         }
         
-        // 2. Action: Try to delete the customer
-        XCTAssertThrowsError(try customerService.delete(customer: customer)) { error in
-            // 3. Assertion: Check if the correct, user-friendly error is thrown
-            guard let serviceError = error as? CustomerServiceError else {
-                XCTFail("Unexpected error type: \(type(of: error))")
-                return
-            }
-            
-            if case .cannotDeleteWithPayments = serviceError {
-                // Test passes
-            } else {
-                XCTFail("Incorrect error type thrown: \(serviceError)")
-            }
+        // 2. Action & Assertion
+        do {
+            try await customerService.delete(customer: customer)
+            XCTFail("Should have thrown cannotDeleteWithPayments error")
+        } catch let CustomerServiceError.cannotDeleteWithPayments {
+            // Test passes
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
         }
     }
     
-    func testDeleteCustomer_whenCustomerHasNoPayments_succeeds() throws {
-        // 1. Setup: Create a customer without any payments
+    func testDeleteCustomer_whenCustomerHasNoPayments_succeeds() async throws {
+        // 1. Setup
         var customer = Customer(id: nil, name: "Customer Without Payment", isActive: true)
-        try dbQueue.write { db in
+        try await dbPool.write { db in
             try customer.save(db)
         }
         let customerId = customer.id!
 
-        // 2. Action: Delete the customer
-        XCTAssertNoThrow(try customerService.delete(customer: customer))
+        // 2. Action
+        try await customerService.delete(customer: customer)
         
-        // 3. Assertion: Verify the customer is no longer in the database
-        let deletedCustomer = try dbQueue.read { db in
+        // 3. Assertion
+        let deletedCustomer = try await dbPool.read { db in
             try Customer.fetchOne(db, key: customerId)
         }
         XCTAssertNil(deletedCustomer)

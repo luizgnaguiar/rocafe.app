@@ -39,11 +39,18 @@ class BackupService {
     
     private let automaticBackupRetentionCount = 14 // Keep the last 14 automatic backups
     
-    init() throws {
-        let appSupportURL = try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    convenience init() throws {
+        let appSupportURL = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let rocafeDir = appSupportURL.appendingPathComponent("rocafe")
-        self.dbPath = rocafeDir.appendingPathComponent("rocafe.sqlite")
-        self.backupsDirectory = rocafeDir.appendingPathComponent("Backups")
+        let dbPath = rocafeDir.appendingPathComponent("rocafe.sqlite")
+        let backupsDirectory = rocafeDir.appendingPathComponent("Backups")
+        
+        try self.init(dbPath: dbPath, backupsDirectory: backupsDirectory)
+    }
+    
+    init(dbPath: URL, backupsDirectory: URL) throws {
+        self.dbPath = dbPath
+        self.backupsDirectory = backupsDirectory
         
         do {
             try fileManager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: nil)

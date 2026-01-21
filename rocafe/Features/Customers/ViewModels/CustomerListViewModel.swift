@@ -2,52 +2,61 @@ import Foundation
 import Combine
 
 @MainActor
-class CustomerListViewModel: ObservableObject {
+class CustomerListViewModel: ObservableObject, StandardViewModel {
+    typealias DataType = [Customer]
     
-    @Published var allCustomers: [Customer] = []
-    @Published var filteredCustomers: [Customer] = []
-    
+    @Published var viewState: ViewState<[Customer]> = .idle
     @Published var searchText: String = ""
     
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+    private let customerService: CustomerService
+    private var allCustomers: [Customer] = []
     
-    private let repository: CustomerRepository
-    private var cancellables = Set<AnyCancellable>()
-    
-    init(repository: CustomerRepository = CustomerRepositoryImpl()) {
-        self.repository = repository
+    var filteredCustomers: [Customer] {
+        guard case .success(let customers) = viewState else { return [] }
         
-        $searchText
-            .combineLatest($allCustomers)
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .map { (text, customers) -> [Customer] in
-                if text.isEmpty {
-                    return customers
-                }
-                let lowercasedText = text.lowercased()
-                return customers.filter { $0.name.lowercased().contains(lowercasedText) }
-            }
-            .assign(to: \.filteredCustomers, on: self)
-            .store(in: &cancellables)
+        if searchText.isEmpty {
+            return customers
+        }
+        return customers.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
     
-    func fetchCustomers() {
-        isLoading = true
-        errorMessage = nil
+    init(customerService: CustomerService = CustomerService()) {
+        self.customerService = customerService
+    }
+    
+    func fetchCustomers() async {
+        viewState = .loading
         
-        self.allCustomers = repository.getAll()
-        
-        isLoading = false
+        do {
+            let customers = try await customerService.getAll()
+            
+            if customers.isEmpty {
+                viewState = .empty
+            } else {
+                // Keep a separate copy for filtering if needed, and update the viewState
+                allCustomers = customers
+                viewState = .success(customers)
+            }
+        } catch {
+            viewState = .error(error)
+        }
     }
     
     func deleteCustomer(at offsets: IndexSet) {
-        let customersToDelete = offsets.map { filteredCustomers[$0] }
-        
-        customersToDelete.forEach { customer in
-            guard let customerId = customer.id else { return }
-            if repository.delete(id: customerId) {
-                allCustomers.removeAll { $0.id == customerId }
+        Task {
+            // First, get the customers to delete from the source of truth
+            guard case .success(let currentCustomers) = viewState else { return }
+            let customersToDelete = offsets.map { currentCustomers[$0] }
+            
+            do {
+                for customer in customersToDelete {
+                    try await customerService.delete(customer: customer)
+                }
+                // Refresh data on success by refetching
+                await fetchCustomers()
+            } catch {
+                // Display error
+                viewState = .error(error)
             }
         }
     }

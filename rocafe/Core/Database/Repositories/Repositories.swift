@@ -4,39 +4,39 @@ import GRDB
 // MARK: - Generic Repository Protocol
 protocol Repository {
     associatedtype Model: FetchableRecord & PersistableRecord
-    var dbQueue: DatabaseQueue { get }
+    var dbPool: DatabasePool { get }
     
-    func getAll() -> [Model]
-    func get(id: Int64) -> Model?
-    func save(_ model: inout Model) throws
-    func delete(id: Int64) -> Bool
+    func getAll() async throws -> [Model]
+    func get(id: Int64) async throws -> Model?
+    func save(_ model: inout Model) async throws
+    func delete(id: Int64) async throws -> Bool
 }
 
 extension Repository {
-    var dbQueue: DatabaseQueue {
-        return DatabaseManager.shared.dbQueue
+    var dbPool: DatabasePool {
+        return DatabaseManager.shared.dbPool
     }
     
-    func getAll() -> [Model] {
-        try! dbQueue.read { db in
+    func getAll() async throws -> [Model] {
+        try await dbPool.read { db in
             try Model.fetchAll(db)
         }
     }
     
-    func get(id: Int64) -> Model? {
-        try! dbQueue.read { db in
+    func get(id: Int64) async throws -> Model? {
+        try await dbPool.read { db in
             try Model.fetchOne(db, key: id)
         }
     }
     
-    func save(_ model: inout Model) throws {
-        try dbQueue.write { db in
+    func save(_ model: inout Model) async throws {
+        try await dbPool.write { db in
             try model.save(db)
         }
     }
     
-    func delete(id: Int64) -> Bool {
-        try! dbQueue.write { db in
+    func delete(id: Int64) async throws -> Bool {
+        try await dbPool.write { db in
             try Model.deleteOne(db, key: id)
         }
     }
@@ -44,40 +44,65 @@ extension Repository {
 
 // MARK: - Specific Repository Protocols
 
-protocol ProductRepository: Repository where Model == Product {
-    // Add specific methods for Product if needed
+protocol ProductRepository: Repository where Model == Product {}
+protocol RecipeRepository: Repository where Model == Recipe {}
+protocol SupplierRepository: Repository where Model == Supplier {}
+protocol DailyEntryRepository: Repository where Model == DailyEntry {}
+protocol ExpenseRepository: Repository where Model == Expense {}
+protocol RecurringExpenseRepository: Repository where Model == RecurringExpense {}
+protocol RecipeIngredientRepository: Repository where Model == RecipeIngredient {
+    func getByRecipeId(recipeId: Int64) async throws -> [RecipeIngredient]
 }
 
-protocol RecipeRepository: Repository where Model == Recipe {
-    // Add specific methods for Recipe if needed
-}
+// MARK: - Custom Repository Protocols
+// For entities that need more specific methods than the generic ones
 
-protocol CustomerRepository: Repository where Model == Customer {
-    // Add specific methods for Customer if needed
-}
-
-protocol SupplierRepository: Repository where Model == Supplier {
-    // Add specific methods for Supplier if needed
-}
-
-protocol DailyEntryRepository: Repository where Model == DailyEntry {
-    // Add specific methods for DailyEntry if needed
-}
-
-protocol ExpenseRepository: Repository where Model == Expense {
-    // Add specific methods for Expense if needed
-}
-
-protocol RecurringExpenseRepository: Repository where Model == RecurringExpense {
-    // Add specific methods for RecurringExpense if needed
-}
-
+protocol CustomerRepository {
+//... (rest of the file is unchanged) ...
 // MARK: - Concrete Implementations
+//... (rest of the file is unchanged) ...
+class RecurringExpenseRepositoryImpl: BaseRepositoryImpl<RecurringExpense>, RecurringExpenseRepository {}
+class RecipeIngredientRepositoryImpl: BaseRepositoryImpl<RecipeIngredient>, RecipeIngredientRepository {
+    func getByRecipeId(recipeId: Int64) async throws -> [RecipeIngredient] {
+        try await dbPool.read { db in
+            try RecipeIngredient
+                .filter(RecipeIngredient.Columns.recipeId == recipeId)
+                .fetchAll(db)
+        }
+    }
+}
 
-class ProductRepositoryImpl: ProductRepository {}
-class RecipeRepositoryImpl: RecipeRepository {}
-class CustomerRepositoryImpl: CustomerRepository {}
-class SupplierRepositoryImpl: SupplierRepository {}
-class DailyEntryRepositoryImpl: DailyEntryRepository {}
-class ExpenseRepositoryImpl: ExpenseRepository {}
-class RecurringExpenseRepositoryImpl: RecurringExpenseRepository {}
+
+class CustomerRepositoryImpl: CustomerRepository {
+//... (rest of the file is unchanged) ...
+
+    private var dbPool: DatabasePool
+
+    init(dbPool: DatabasePool = DatabaseManager.shared.dbPool) {
+        self.dbPool = dbPool
+    }
+
+    func getAll() async throws -> [Customer] {
+        try await dbPool.read { db in
+            try Customer.fetchAll(db)
+        }
+    }
+
+    func getById(_ id: Int64) async throws -> Customer? {
+        try await dbPool.read { db in
+            try Customer.fetchOne(db, key: id)
+        }
+    }
+
+    func save(_ customer: inout Customer) async throws {
+        try await dbPool.write { db in
+            try customer.save(db)
+        }
+    }
+
+    func delete(_ customer: Customer) async throws -> Bool {
+        try await dbPool.write { db in
+            try customer.delete(db)
+        }
+    }
+}

@@ -1,54 +1,49 @@
 import Foundation
-import Combine
 
 @MainActor
-class SupplierListViewModel: ObservableObject {
+class SupplierListViewModel: ObservableObject, StandardViewModel {
+    typealias DataType = [Supplier]
     
-    @Published var allSuppliers: [Supplier] = []
-    @Published var filteredSuppliers: [Supplier] = []
-    
+    @Published var viewState: ViewState<[Supplier]> = .idle
     @Published var searchText: String = ""
     
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+    private let supplierService: SupplierService
+    private var allSuppliers: [Supplier] = []
     
-    private let repository: SupplierRepository
-    private var cancellables = Set<AnyCancellable>()
+    var filteredSuppliers: [Supplier] {
+        if searchText.isEmpty {
+            return allSuppliers
+        }
+        return allSuppliers.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
     
-    init(repository: SupplierRepository = SupplierRepositoryImpl()) {
-        self.repository = repository
-        
-        $searchText
-            .combineLatest($allSuppliers)
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .map { (text, suppliers) -> [Supplier] in
-                if text.isEmpty {
-                    return suppliers
-                }
-                let lowercasedText = text.lowercased()
-                return suppliers.filter { $0.name.lowercased().contains(lowercasedText) }
-            }
-            .assign(to: \.filteredSuppliers, on: self)
-            .store(in: &cancellables)
+    init(supplierService: SupplierService = SupplierService()) {
+        self.supplierService = supplierService
     }
     
     func fetchSuppliers() {
-        isLoading = true
-        errorMessage = nil
+        viewState = .loading
         
-        self.allSuppliers = repository.getAll()
+        let suppliers = supplierService.getAll()
         
-        isLoading = false
+        if suppliers.isEmpty {
+            viewState = .empty
+        } else {
+            allSuppliers = suppliers
+            viewState = .success(suppliers)
+        }
     }
     
     func deleteSupplier(at offsets: IndexSet) {
         let suppliersToDelete = offsets.map { filteredSuppliers[$0] }
         
-        suppliersToDelete.forEach { supplier in
-            guard let supplierId = supplier.id else { return }
-            if repository.delete(id: supplierId) {
-                allSuppliers.removeAll { $0.id == supplierId }
+        do {
+            for supplier in suppliersToDelete {
+                try supplierService.delete(supplier: supplier)
             }
+            fetchSuppliers()
+        } catch {
+            viewState = .error(error)
         }
     }
 }

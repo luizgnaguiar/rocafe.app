@@ -13,6 +13,7 @@ struct Product: Codable, FetchableRecord, PersistableRecord, Identifiable {
     
     // Manufacturing
     var manufacturingCost: Decimal? // Cache for manufactured product cost
+    var recipeId: Int64?
     
     // Supplier
     var supplierId: Int64?
@@ -24,6 +25,7 @@ struct Product: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static var databaseTableName = "product"
     
     static let supplier = belongsTo(Supplier.self)
+    static let recipe = belongsTo(Recipe.self)
     
     var profitMargin: Decimal? {
         guard let salePrice = salePrice, salePrice > 0 else { return nil }

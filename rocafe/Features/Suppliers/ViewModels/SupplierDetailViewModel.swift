@@ -1,46 +1,64 @@
 import Foundation
-import Combine
 
 @MainActor
-class SupplierDetailViewModel: ObservableObject {
+class SupplierDetailViewModel: ObservableObject, StandardViewModel {
+    typealias DataType = Supplier
     
     @Published var supplier: Supplier
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+    @Published var viewState: ViewState<Supplier> = .idle
     
-    private let repository: SupplierRepository
+    private let service: SupplierService
     
-    init(supplier: Supplier?, repository: SupplierRepository = SupplierRepositoryImpl()) {
-        self.supplier = supplier ?? Supplier(id: nil, name: "", isActive: true)
-        self.repository = repository
+    init(supplier: Supplier, service: SupplierService = SupplierService()) {
+        self.supplier = supplier
+        self.service = service
+        self.viewState = .success(supplier)
+    }
+    
+    init(supplierId: Int64, service: SupplierService = SupplierService()) {
+        self.supplier = Supplier(id: nil, name: "", isActive: true)
+        self.service = service
+        fetchSupplier(withId: supplierId)
+    }
+    
+    private func fetchSupplier(withId id: Int64) {
+        viewState = .loading
+        Task {
+            do {
+                let fetchedSupplier = try service.getById(id)
+                self.supplier = fetchedSupplier
+                self.viewState = .success(fetchedSupplier)
+            } catch {
+                self.viewState = .error(error)
+            }
+        }
     }
     
     func saveSupplier() {
-        guard validate() else { return }
+        viewState = .loading
         
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            var supplierToSave = self.supplier
-            try repository.save(&supplierToSave)
-            self.supplier = supplierToSave
-        } catch {
-            errorMessage = "Falha ao salvar o fornecedor: \(error.localizedDescription)"
+        Task {
+            do {
+                var supplierToSave = self.supplier
+                try service.save(supplier: &supplierToSave)
+                self.supplier = supplierToSave
+                viewState = .success(supplierToSave)
+            } catch {
+                viewState = .error(error)
+            }
         }
-        
-        isLoading = false
     }
     
-    private func validate() -> Bool {
-        if supplier.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errorMessage = "O nome do fornecedor é obrigatório."
-            return false
+    func deleteSupplier() {
+        viewState = .loading
+        
+        Task {
+            do {
+                try service.delete(supplier: self.supplier)
+                viewState = .success(self.supplier)
+            } catch {
+                viewState = .error(error)
+            }
         }
-        
-        // TODO: Add CNPJ validation if needed
-        
-        errorMessage = nil
-        return true
     }
 }

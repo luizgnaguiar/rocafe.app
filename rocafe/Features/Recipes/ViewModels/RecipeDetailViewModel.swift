@@ -1,100 +1,116 @@
 import Foundation
 import Combine
 
-// A wrapper to hold an ingredient and its quantity for UI purposes
-struct RecipeIngredientItem: Identifiable {
+struct RecipeIngredientItem: Identifiable, Equatable {
     let id = UUID()
     var ingredientId: Int64
     var name: String
     var type: IngredientType
     var quantity: Decimal
+    
+    static func == (lhs: RecipeIngredientItem, rhs: RecipeIngredientItem) -> Bool {
+        return lhs.id == rhs.id
+    }
 }
 
 @MainActor
-class RecipeDetailViewModel: ObservableObject {
+class RecipeDetailViewModel: ObservableObject, StandardViewModel {
+    typealias DataType = (recipe: Recipe, ingredients: [RecipeIngredientItem])
     
+    @Published var viewState: ViewState<DataType> = .idle
     @Published var recipe: Recipe
     @Published var ingredients: [RecipeIngredientItem] = []
     
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    
-    // Data for pickers
     @Published var allRawMaterials: [Product] = []
     @Published var allSubRecipes: [Recipe] = []
     
-    private let recipeRepo: RecipeRepository
-    private let productRepo: ProductRepository
     private let recipeService: RecipeService
-    
-    // Repositories for ingredients would also be needed
+    private let productService: ProductService
     
     init(
         recipe: Recipe,
-        recipeRepo: RecipeRepository = RecipeRepositoryImpl(),
-        productRepo: ProductRepository = ProductRepositoryImpl(),
-        recipeService: RecipeService = RecipeService()
+        recipeService: RecipeService = RecipeService(),
+        productService: ProductService = ProductService()
     ) {
         self.recipe = recipe
-        self.recipeRepo = recipeRepo
-        self.productRepo = productRepo
         self.recipeService = recipeService
+        self.productService = productService
     }
     
-    func onAppear() {
-        fetchInitialData()
+    func fetchData() {
+        viewState = .loading
+        Task {
+            do {
+                let (fetchedRecipe, fetchedIngredients) = try recipeService.getRecipeWithIngredients(id: recipe.id!)
+                self.recipe = fetchedRecipe
+                
+                // Fetch data for pickers
+                self.allRawMaterials = productService.getRawMaterials()
+                self.allSubRecipes = recipeService.getAll().filter { $0.id != self.recipe.id }
+                
+                // Map ingredients to UI items
+                var ingredientItems: [RecipeIngredientItem] = []
+                for ingredient in fetchedIngredients {
+                    let name: String
+                    if ingredient.ingredientType == .rawMaterial, let productId = ingredient.ingredientProductId {
+                        name = allRawMaterials.first { $0.id == productId }?.name ?? "Ingrediente Desconhecido"
+                    } else if ingredient.ingredientType == .subRecipe, let subRecipeId = ingredient.ingredientRecipeId {
+                        name = allSubRecipes.first { $0.id == subRecipeId }?.name ?? "Sub-receita Desconhecida"
+                    } else {
+                        name = "Ingrediente Inválido"
+                    }
+                    
+                    ingredientItems.append(.init(
+                        ingredientId: ingredient.id!,
+                        name: name,
+                        type: ingredient.ingredientType,
+                        quantity: ingredient.quantity
+                    ))
+                }
+                self.ingredients = ingredientItems
+                
+                viewState = .success((recipe, ingredientItems))
+            } catch {
+                viewState = .error(error)
+            }
+        }
     }
     
-    func fetchInitialData() {
-        isLoading = true
-        
-        // Fetch ingredients for the recipe
-        // TODO: Create a repository method for this
-        
-        // Fetch products and other recipes for the "Add Ingredient" picker
-        self.allRawMaterials = productRepo.getAll().filter { $0.type == .rawMaterial }
-        
-        // Exclude the current recipe and any that would cause a circular dependency
-        self.allSubRecipes = recipeRepo.getAll().filter { $0.id != self.recipe.id }
-        
-        // TODO: Populate the `ingredients` array from the database
-        
-        isLoading = false
-    }
-    
-    func addIngredient(id: Int64, type: IngredientType, quantity: Decimal) {
-        // --- Placeholder ---
-        // 1. Validate: check for circular references if it's a sub-recipe
-        // 2. Add the new ingredient to the local `ingredients` array
-        // 3. This should eventually save the ingredient to the database
+    func addIngredient(id: Int64, type: IngredientType, name: String, quantity: Decimal) {
+        let newItem = RecipeIngredientItem(ingredientId: id, name: name, type: type, quantity: quantity)
+        ingredients.append(newItem)
     }
     
     func removeIngredient(at offsets: IndexSet) {
         ingredients.remove(atOffsets: offsets)
-        // This should also remove the ingredient from the database
     }
     
     func saveRecipe() {
-        // This is a complex operation that should use the RecipeService
-        // to handle versioning and cost recalculation.
-        
-        isLoading = true
-        errorMessage = nil
-        
-        // Use a background task for this, as it could be slow
+        viewState = .loading
         Task {
-            // --- Placeholder for service call ---
-            // recipeService.updateRecipe(recipeId: recipe.id, ...)
-            
-            // After saving, recalculate the cost
-            await recipeService.recalculateCost(for: recipe.id!)
-            
-            // Fetch the updated recipe to get the new version and cost
-            if let updatedRecipe = recipeRepo.get(id: recipe.id!) {
+            do {
+                var recipeToSave = self.recipe
+                
+                let ingredientsToSave = ingredients.map { item -> RecipeIngredient in
+                    if item.type == .rawMaterial {
+                        return RecipeIngredient(recipeId: recipeToSave.id!, ingredientType: .rawMaterial, ingredientProductId: item.ingredientId, quantity: item.quantity)
+                    } else {
+                        return RecipeIngredient(recipeId: recipeToSave.id!, ingredientType: .subRecipe, ingredientRecipeId: item.ingredientId, quantity: item.quantity)
+                    }
+                }
+                
+                try recipeService.save(recipe: &recipeToSave, ingredients: ingredientsToSave)
+                
+                await recipeService.recalculateCost(for: recipeToSave.id!)
+                
+                let updatedRecipe = try recipeService.getById(recipeToSave.id!)
                 self.recipe = updatedRecipe
+                
+                viewState = .success((updatedRecipe, ingredients))
+                
+            } catch {
+                viewState = .error(error)
             }
-            
-            isLoading = false
         }
     }
 }

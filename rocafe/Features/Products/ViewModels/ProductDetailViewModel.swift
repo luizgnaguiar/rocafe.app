@@ -1,93 +1,77 @@
 import Foundation
-import Combine
 
 @MainActor
-class ProductDetailViewModel: ObservableObject {
+class ProductDetailViewModel: ObservableObject, StandardViewModel {
+    typealias DataType = Product
     
+    @Published var viewState: ViewState<Product> = .idle
     @Published var product: Product
-    @Published var isLoading = false
-    @Published var errorMessage: String?
     
-    // Properties for picking related items
     @Published var allSuppliers: [Supplier] = []
     @Published var allRecipes: [Recipe] = []
     
-    private let productRepo: ProductRepository
-    private let supplierRepo: SupplierRepository
-    private let recipeRepo: RecipeRepository
+    private let productService: ProductService
+    private let supplierService: SupplierService
+    private let recipeService: RecipeService
     
     init(
         product: Product?,
-        productRepo: ProductRepository = ProductRepositoryImpl(),
-        supplierRepo: SupplierRepository = SupplierRepositoryImpl(),
-        recipeRepo: RecipeRepository = RecipeRepositoryImpl()
+        productService: ProductService = ProductService(),
+        supplierService: SupplierService = SupplierService(),
+        recipeService: RecipeService = RecipeService()
     ) {
         self.product = product ?? Product(id: nil, name: "", type: .finished, category: .ready, isActive: true)
-        self.productRepo = productRepo
-        self.supplierRepo = supplierRepo
-        self.recipeRepo = recipeRepo
+        self.productService = productService
+        self.supplierService = supplierService
+        self.recipeService = recipeService
+        
+        if product != nil {
+            self.viewState = .success(self.product)
+        }
     }
     
-    func onAppear() {
-        // Fetch related data needed for pickers, etc.
-        self.allSuppliers = supplierRepo.getAll()
-        // Only fetch recipes if this is a manufactured product
-        if product.category == .manufactured {
-            self.allRecipes = recipeRepo.getAll()
+    func fetchRequiredData() {
+        if case .success = viewState {
+             // Data is already loaded
+        } else {
+            viewState = .loading
         }
+        
+        // Fetch auxiliary data
+        self.allSuppliers = supplierService.getAll()
+        self.allRecipes = recipeService.getAll()
+        
+        if self.product.id == nil {
+            // This is a new product, no need to fetch it.
+            viewState = .success(self.product)
+        }
+        // If it's an existing product, it's already loaded from the initializer.
+        // If we needed to fetch it by ID, we would do it here and update the state.
     }
     
     func saveProduct() {
-        guard validate() else { return }
-        
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            var productToSave = self.product
-            
-            // Adjust data based on type
-            if productToSave.type == .rawMaterial {
-                productToSave.category = nil
-                productToSave.salePrice = nil
-                productToSave.recipeId = nil
-            } else if productToSave.category == .ready {
-                productToSave.recipeId = nil
+        viewState = .loading
+        Task {
+            do {
+                var productToSave = self.product
+                try productService.save(product: &productToSave)
+                self.product = productToSave
+                viewState = .success(productToSave)
+            } catch {
+                viewState = .error(error)
             }
-            
-            try productRepo.save(&productToSave)
-            self.product = productToSave
-            
-        } catch {
-            errorMessage = "Falha ao salvar o produto: \(error.localizedDescription)"
         }
-        
-        isLoading = false
     }
     
-    private func validate() -> Bool {
-        // Name is required
-        if product.name.trimmingCharacters(in: .whitespaces).isEmpty {
-            errorMessage = "O nome do produto é obrigatório."
-            return false
-        }
-        
-        // Sale price must be >= cost
-        if let salePrice = product.salePrice {
-            let cost = product.purchasePrice ?? product.manufacturingCost ?? 0
-            if salePrice < cost {
-                errorMessage = "O preço de venda não pode ser menor que o custo."
-                return false
+    func deleteProduct() {
+        viewState = .loading
+        Task {
+            do {
+                try productService.delete(product: self.product)
+                viewState = .success(self.product) // To signal dismissal
+            } catch {
+                viewState = .error(error)
             }
         }
-        
-        // Manufactured product must have a recipe
-        if product.category == .manufactured && product.recipeId == nil {
-            errorMessage = "Um produto de fabricação própria deve ter uma receita associada."
-            return false
-        }
-        
-        errorMessage = nil
-        return true
     }
 }

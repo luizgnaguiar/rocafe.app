@@ -29,8 +29,19 @@ class CustomerService {
         self.repository = repository
     }
     
+    func getAll() async throws -> [Customer] {
+        return try await repository.getAll()
+    }
+    
+    func getById(_ id: Int64) async throws -> Customer {
+        guard let customer = try await repository.getById(id) else {
+            throw CustomerServiceError.customerNotFound(id: id)
+        }
+        return customer
+    }
+    
     /// Saves a customer after validating its business rules.
-    func save(customer: inout Customer) throws {
+    func save(customer: inout Customer) async throws {
         if customer.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw CustomerServiceError.nameIsEmpty
         }
@@ -40,14 +51,14 @@ class CustomerService {
             throw CustomerServiceError.emailInvalid
         }
         
-        try repository.save(&customer)
+        try await repository.save(&customer)
     }
     
     /// Deletes a customer.
     /// Throws an error if the customer has associated payments, due to database constraints.
-    func delete(customer: Customer) throws {
+    func delete(customer: Customer) async throws {
         do {
-            _ = try repository.delete(customer)
+            _ = try await repository.delete(customer)
         } catch let DatabaseError.foreignKeyViolation(message) {
             // This is where we catch the ON DELETE RESTRICT violation from SQLite
             throw CustomerServiceError.cannotDeleteWithPayments(DatabaseError.foreignKeyViolation(message))

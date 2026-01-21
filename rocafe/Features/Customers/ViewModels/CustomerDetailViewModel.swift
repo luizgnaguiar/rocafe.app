@@ -2,16 +2,37 @@ import Foundation
 import Combine
 
 @MainActor
-class CustomerDetailViewModel: ObservableObject {
+class CustomerDetailViewModel: ObservableObject, StandardViewModel {
+    typealias DataType = Customer
     
     @Published var customer: Customer
     @Published var viewState: ViewState<Customer> = .idle
     
     private let service: CustomerService
     
-    init(customer: Customer?, service: CustomerService = CustomerService()) {
-        self.customer = customer ?? Customer(id: nil, name: "", isActive: true)
+    init(customer: Customer, service: CustomerService = CustomerService()) {
+        self.customer = customer
         self.service = service
+        self.viewState = .success(customer)
+    }
+    
+    init(customerId: Int64, service: CustomerService = CustomerService()) {
+        self.customer = Customer(id: nil, name: "", isActive: true)
+        self.service = service
+        fetchCustomer(withId: customerId)
+    }
+    
+    private func fetchCustomer(withId id: Int64) {
+        viewState = .loading
+        Task {
+            do {
+                let fetchedCustomer = try service.getById(id)
+                self.customer = fetchedCustomer
+                self.viewState = .success(fetchedCustomer)
+            } catch {
+                self.viewState = .error(error)
+            }
+        }
     }
     
     func saveCustomer() {
@@ -33,7 +54,7 @@ class CustomerDetailViewModel: ObservableObject {
         viewState = .loading
         
         Task {
-            do {
+            do {.
                 try service.delete(customer: self.customer)
                 // On success, we can't show the deleted customer,
                 // so we pass a copy to the success state for any listening view.

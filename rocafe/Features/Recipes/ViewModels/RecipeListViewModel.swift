@@ -1,57 +1,49 @@
 import Foundation
-import Combine
 
 @MainActor
-class RecipeListViewModel: ObservableObject {
+class RecipeListViewModel: ObservableObject, StandardViewModel {
+    typealias DataType = [Recipe]
     
-    @Published var allRecipes: [Recipe] = []
-    @Published var filteredRecipes: [Recipe] = []
-    
+    @Published var viewState: ViewState<[Recipe]> = .idle
     @Published var searchText: String = ""
     
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+    private let recipeService: RecipeService
+    private var allRecipes: [Recipe] = []
     
-    private let repository: RecipeRepository
-    private var cancellables = Set<AnyCancellable>()
+    var filteredRecipes: [Recipe] {
+        if searchText.isEmpty {
+            return allRecipes
+        }
+        return allRecipes.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
     
-    init(repository: RecipeRepository = RecipeRepositoryImpl()) {
-        self.repository = repository
-        
-        $searchText
-            .combineLatest($allRecipes)
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .map { (text, recipes) -> [Recipe] in
-                if text.isEmpty {
-                    return recipes
-                }
-                let lowercasedText = text.lowercased()
-                return recipes.filter { $0.name.lowercased().contains(lowercasedText) }
-            }
-            .assign(to: \.filteredRecipes, on: self)
-            .store(in: &cancellables)
+    init(recipeService: RecipeService = RecipeService()) {
+        self.recipeService = recipeService
     }
     
     func fetchRecipes() {
-        isLoading = true
-        errorMessage = nil
+        viewState = .loading
         
-        self.allRecipes = repository.getAll()
+        let recipes = recipeService.getAll()
         
-        isLoading = false
+        if recipes.isEmpty {
+            viewState = .empty
+        } else {
+            allRecipes = recipes
+            viewState = .success(recipes)
+        }
     }
     
     func deleteRecipe(at offsets: IndexSet) {
         let recipesToDelete = offsets.map { filteredRecipes[$0] }
         
-        recipesToDelete.forEach { recipe in
-            guard let recipeId = recipe.id else { return }
-            // Note: Deleting a recipe might have cascading effects that need to be handled.
-            // For example, what happens to products that use this recipe?
-            // The database schema uses onDelete: .setNull for the product's recipeId.
-            if repository.delete(id: recipeId) {
-                allRecipes.removeAll { $0.id == recipeId }
+        do {
+            for recipe in recipesToDelete {
+                try recipeService.delete(recipe: recipe)
             }
+            fetchRecipes()
+        } catch {
+            viewState = .error(error)
         }
     }
 }

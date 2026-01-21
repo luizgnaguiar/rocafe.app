@@ -3,6 +3,7 @@ import SwiftUI
 struct SupplierListView: View {
     
     @StateObject private var viewModel = SupplierListViewModel()
+    @State private var showErrorAlert = false
     
     var body: some View {
         VStack {
@@ -19,33 +20,59 @@ struct SupplierListView: View {
                     Text("Novo Fornecedor")
                 }
             }
-            .padding()
+            .padding([.horizontal, .top])
             
-            if viewModel.isLoading {
-                ProgressView()
-            } else {
-                List {
-                    ForEach(viewModel.filteredSuppliers) { supplier in
-                        // TODO: NavigationLink to SupplierDetailView
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(supplier.name)
-                                    .font(.headline)
-                                if let legalName = supplier.legalName {
-                                    Text(legalName)
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    }
-                    .onDelete(perform: viewModel.deleteSupplier)
-                }
-            }
+            content
         }
         .navigationTitle("Fornecedores")
         .onAppear {
             viewModel.fetchSuppliers()
+        }
+        .alert(isPresented: $showErrorAlert) {
+            Alert(
+                title: Text("Erro"),
+                message: Text(viewModel.viewState.localizedErrorDescription),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private var content: some View {
+        switch viewModel.viewState {
+        case .idle, .loading:
+            ProgressView("Carregando fornecedores...")
+                .frame(maxHeight: .infinity)
+            
+        case .success:
+            List {
+                ForEach(viewModel.filteredSuppliers) { supplier in
+                    // TODO: NavigationLink to SupplierDetailView
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(supplier.name)
+                                .font(.headline)
+                            if let legalName = supplier.legalName {
+                                Text(legalName)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+                .onDelete(perform: viewModel.deleteSupplier)
+            }
+            .listStyle(InsetGroupedListStyle())
+            
+        case .empty:
+            Text("Nenhum fornecedor encontrado.")
+                .foregroundColor(.secondary)
+                .frame(maxHeight: .infinity)
+            
+        case .error:
+            Color.clear.onAppear {
+                showErrorAlert = true
+            }
         }
     }
 }

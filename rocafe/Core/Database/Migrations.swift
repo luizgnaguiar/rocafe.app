@@ -175,5 +175,12 @@ struct AppMigrations {
             }
             try db.create(index: "index_dailyEntry_on_date", on: DailyEntry.databaseTableName, columns: ["date"])
         }
+        
+        migrator.registerMigration("v1.0.1-addProductRecipeId") { db in
+            try db.alter(table: Product.databaseTableName) { t in
+                t.add(column: "recipeId", .integer).references(Recipe.databaseTableName, onDelete: .setNull)
+            }
+            try db.create(index: "index_product_on_recipeId", on: Product.databaseTableName, columns: ["recipeId"])
+        }
     }
 }
