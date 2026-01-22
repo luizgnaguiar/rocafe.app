@@ -46,3 +46,20 @@ struct Product: Codable, FetchableRecord, PersistableRecord, Identifiable {
         return (salePrice - cost) / salePrice
     }
 }
+
+extension Product {
+    enum Columns: String, ColumnExpression {
+        case id
+        case name
+        case type
+        case category
+        case purchasePrice
+        case salePrice
+        case manufacturingCost
+        case recipeId
+        case supplierId
+        case isActive
+        case createdAt
+        case updatedAt
+    }
+}

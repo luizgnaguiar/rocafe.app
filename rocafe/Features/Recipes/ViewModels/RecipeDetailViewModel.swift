@@ -3,9 +3,8 @@ import Combine
 
 struct RecipeIngredientItem: Identifiable, Equatable {
     let id = UUID()
-    var ingredientId: Int64
+    var productId: Int64 // This now consistently refers to the Product ID of the ingredient
     var name: String
-    var type: IngredientType
     var quantity: Decimal
     
     static func == (lhs: RecipeIngredientItem, rhs: RecipeIngredientItem) -> Bool {
@@ -21,63 +20,56 @@ class RecipeDetailViewModel: ObservableObject, StandardViewModel {
     @Published var recipe: Recipe
     @Published var ingredients: [RecipeIngredientItem] = []
     
+    // Data for pickers
     @Published var allRawMaterials: [Product] = []
-    @Published var allSubRecipes: [Recipe] = []
+    @Published var allManufacturedProducts: [Product] = []
     
     private let recipeService: RecipeService
     private let productService: ProductService
     
     init(
         recipe: Recipe,
-        recipeService: RecipeService = RecipeService(),
-        productService: ProductService = ProductService()
+        recipeService: RecipeService? = nil,
+        productService: ProductService? = nil
     ) {
         self.recipe = recipe
-        self.recipeService = recipeService
-        self.productService = productService
+        self.recipeService = recipeService ?? RecipeService()
+        self.productService = productService ?? ProductService()
     }
     
-    func fetchData() {
+    func fetchData() async {
         viewState = .loading
-        Task {
-            do {
-                let (fetchedRecipe, fetchedIngredients) = try recipeService.getRecipeWithIngredients(id: recipe.id!)
-                self.recipe = fetchedRecipe
-                
-                // Fetch data for pickers
-                self.allRawMaterials = productService.getRawMaterials()
-                self.allSubRecipes = recipeService.getAll().filter { $0.id != self.recipe.id }
-                
-                // Map ingredients to UI items
-                var ingredientItems: [RecipeIngredientItem] = []
-                for ingredient in fetchedIngredients {
-                    let name: String
-                    if ingredient.ingredientType == .rawMaterial, let productId = ingredient.ingredientProductId {
-                        name = allRawMaterials.first { $0.id == productId }?.name ?? "Ingrediente Desconhecido"
-                    } else if ingredient.ingredientType == .subRecipe, let subRecipeId = ingredient.ingredientRecipeId {
-                        name = allSubRecipes.first { $0.id == subRecipeId }?.name ?? "Sub-receita Desconhecida"
-                    } else {
-                        name = "Ingrediente Inválido"
-                    }
-                    
-                    ingredientItems.append(.init(
-                        ingredientId: ingredient.id!,
-                        name: name,
-                        type: ingredient.ingredientType,
-                        quantity: ingredient.quantity
-                    ))
+        do {
+            // Fetch all data in parallel
+            async let fetchedData = try recipeService.getRecipeWithIngredients(id: recipe.id!)
+            async let rawMaterials = try productService.getRawMaterials()
+            async let allProducts = try productService.getAll() // Needed to get names
+
+            let (fetchedRecipe, fetchedIngredients) = try await fetchedData
+            self.allRawMaterials = try await rawMaterials
+            let products = try await allProducts
+            
+            // Exclude the current recipe's product from being an ingredient in itself
+            self.allManufacturedProducts = products.filter { $0.type == .manufactured && $0.id != self.recipe.productId }
+
+            self.recipe = fetchedRecipe
+            
+            // Map ingredients to UI items
+            self.ingredients = try fetchedIngredients.map { ingredient in
+                guard let product = products.first(where: { $0.id == ingredient.productId }) else {
+                    throw RecipeServiceError.notFound // Or a more specific error
                 }
-                self.ingredients = ingredientItems
-                
-                viewState = .success((recipe, ingredientItems))
-            } catch {
-                viewState = .error(error)
+                return RecipeIngredientItem(productId: product.id!, name: product.name, quantity: ingredient.quantity)
             }
+            
+            viewState = .success((self.recipe, self.ingredients))
+        } catch {
+            viewState = .error(error)
         }
     }
     
-    func addIngredient(id: Int64, type: IngredientType, name: String, quantity: Decimal) {
-        let newItem = RecipeIngredientItem(ingredientId: id, name: name, type: type, quantity: quantity)
+    func addIngredient(product: Product, quantity: Decimal) {
+        let newItem = RecipeIngredientItem(productId: product.id!, name: product.name, quantity: quantity)
         ingredients.append(newItem)
     }
     
@@ -85,32 +77,26 @@ class RecipeDetailViewModel: ObservableObject, StandardViewModel {
         ingredients.remove(atOffsets: offsets)
     }
     
-    func saveRecipe() {
+    func saveRecipe() async {
         viewState = .loading
-        Task {
-            do {
-                var recipeToSave = self.recipe
-                
-                let ingredientsToSave = ingredients.map { item -> RecipeIngredient in
-                    if item.type == .rawMaterial {
-                        return RecipeIngredient(recipeId: recipeToSave.id!, ingredientType: .rawMaterial, ingredientProductId: item.ingredientId, quantity: item.quantity)
-                    } else {
-                        return RecipeIngredient(recipeId: recipeToSave.id!, ingredientType: .subRecipe, ingredientRecipeId: item.ingredientId, quantity: item.quantity)
-                    }
-                }
-                
-                try recipeService.save(recipe: &recipeToSave, ingredients: ingredientsToSave)
-                
-                await recipeService.recalculateCost(for: recipeToSave.id!)
-                
-                let updatedRecipe = try recipeService.getById(recipeToSave.id!)
-                self.recipe = updatedRecipe
-                
-                viewState = .success((updatedRecipe, ingredients))
-                
-            } catch {
-                viewState = .error(error)
+        do {
+            var recipeToSave = self.recipe
+            
+            // Map UI items back to model objects
+            let ingredientsToSave = ingredients.map {
+                RecipeIngredient(recipeId: recipeToSave.id!, productId: $0.productId, quantity: $0.quantity)
             }
+            
+            // The save method in the service now handles recalculation
+            try await recipeService.save(recipe: &recipeToSave, ingredients: ingredientsToSave)
+            
+            let updatedRecipe = try await recipeService.getById(recipeToSave.id!)
+            self.recipe = updatedRecipe
+            
+            viewState = .success((updatedRecipe, self.ingredients))
+            
+        } catch {
+            viewState = .error(error)
         }
     }
 }

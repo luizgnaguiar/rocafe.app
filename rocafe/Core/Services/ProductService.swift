@@ -1,31 +1,8 @@
 import Foundation
 import GRDB
 
-enum ProductServiceError: Error, LocalizedError {
-    case productNotFound(id: Int64)
-    case nameIsEmpty
-    case invalidSalePrice
-    case invalidSalePriceVsCost
-    case cannotDeleteWhileInUse(Error)
-
-    var errorDescription: String? {
-        switch self {
-        case .productNotFound(let id):
-            return "O produto com ID \(id) não foi encontrado."
-        case .nameIsEmpty:
-            return "O nome do produto é obrigatório."
-        case .invalidSalePrice:
-            return "O preço de venda deve ser maior que zero."
-        case .invalidSalePriceVsCost:
-            return "O preço de venda não pode ser menor que o custo."
-        case .cannotDeleteWhileInUse:
-            return "Este produto não pode ser excluído pois está sendo usado em receitas ou registros diários."
-        }
-    }
-}
-
+@MainActor
 class ProductService {
-
     private let repository: ProductRepository
 
     init(repository: ProductRepository = ProductRepositoryImpl()) {
@@ -33,20 +10,24 @@ class ProductService {
     }
 
     func getAll() async throws -> [Product] {
-        try await repository.getAll()
+        try await Task {
+            try repository.getAll()
+        }.value
     }
 
     func getById(_ id: Int64) async throws -> Product {
-        guard let product = try await repository.get(id: id) else {
-            throw ProductServiceError.productNotFound(id: id)
+        guard let product = try await Task({ try repository.get(id: id) }).value else {
+            throw ProductServiceError.notFound
         }
         return product
     }
 
     func getRawMaterials() async throws -> [Product] {
-        try await repository.dbPool.read { db in
-            try Product.filter(Product.Columns.type == ProductType.rawMaterial.rawValue).fetchAll(db)
-        }
+        try await Task {
+            try repository.dbPool.read { db in
+                try Product.filter(Product.Columns.type == ProductType.rawMaterial.rawValue).fetchAll(db)
+            }
+        }.value
     }
 
     func save(product: inout Product) async throws {
@@ -70,17 +51,54 @@ class ProductService {
             product.salePrice = nil
         }
 
-        try await repository.save(&product)
+        var productToSave = product
+        try await Task {
+            try repository.save(&productToSave)
+        }.value
+        product = productToSave
     }
 
     func delete(product: Product) async throws {
         guard let productId = product.id else { return }
-        do {
-            _ = try await repository.delete(id: productId)
-        } catch let DatabaseError.foreignKeyViolation(message) {
-            throw ProductServiceError.cannotDeleteWhileInUse(DatabaseError.foreignKeyViolation(message))
-        } catch {
-            throw error
+        let success = try await Task {
+            do {
+                return try repository.delete(id: productId)
+            } catch let DatabaseError.foreignKeyViolation {
+                throw ProductServiceError.cannotDeleteWhileInUse
+            } catch {
+                throw error
+            }
+        }.value
+        
+        if !success {
+            throw ProductServiceError.deleteFailed
+        }
+    }
+}
+
+
+enum ProductServiceError: LocalizedError {
+    case notFound
+    case nameIsEmpty
+    case invalidSalePrice
+    case invalidSalePriceVsCost
+    case cannotDeleteWhileInUse
+    case deleteFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound:
+            return "O produto não foi encontrado."
+        case .nameIsEmpty:
+            return "O nome do produto é obrigatório."
+        case .invalidSalePrice:
+            return "O preço de venda deve ser maior que zero."
+        case .invalidSalePriceVsCost:
+            return "O preço de venda não pode ser menor que o custo."
+        case .cannotDeleteWhileInUse:
+            return "Este produto não pode ser excluído pois está sendo usado em receitas ou registros diários."
+        case .deleteFailed:
+            return "Falha ao deletar o produto."
         }
     }
 }

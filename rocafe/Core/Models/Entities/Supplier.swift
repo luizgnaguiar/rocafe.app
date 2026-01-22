@@ -19,3 +19,22 @@ struct Supplier: Codable, FetchableRecord, PersistableRecord, Identifiable {
 
     static var databaseTableName = "supplier"
 }
+
+extension Supplier {
+    enum Columns: String, ColumnExpression {
+        case id
+        case name
+        case legalName
+        case cnpj
+        case phone
+        case email
+        case address
+        case city
+        case state
+        case zipCode
+        case notes
+        case isActive
+        case createdAt
+        case updatedAt
+    }
+}

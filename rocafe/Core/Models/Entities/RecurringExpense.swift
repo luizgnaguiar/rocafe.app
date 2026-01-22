@@ -19,3 +19,19 @@ struct RecurringExpense: Codable, FetchableRecord, PersistableRecord, Identifiab
     static let supplier = belongsTo(Supplier.self)
     static let expenses = hasMany(Expense.self)
 }
+
+extension RecurringExpense {
+    enum Columns: String, ColumnExpression {
+        case id
+        case description
+        case category
+        case baseAmount
+        case dayOfMonth
+        case startDate
+        case endDate
+        case isActive
+        case supplierId
+        case createdAt
+        case updatedAt
+    }
+}

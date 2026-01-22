@@ -59,7 +59,9 @@ struct ProductListView: View {
             set: { if !$0 { offsetsToDelete = nil } }
         ), presenting: offsetsToDelete) { offsets in
             Button("Apagar Produto", role: .destructive) {
-                viewModel.deleteProduct(at: offsets)
+                Task {
+                    await viewModel.deleteProduct(at: offsets)
+                }
             }
             Button("Cancelar", role: .cancel) {}
         } message: { offsets in

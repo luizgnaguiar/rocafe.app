@@ -8,40 +8,43 @@ class RecipeListViewModel: ObservableObject, StandardViewModel {
     @Published var searchText: String = ""
     
     private let recipeService: RecipeService
-    private var allRecipes: [Recipe] = []
     
     var filteredRecipes: [Recipe] {
+        guard case .success(let recipes) = viewState else { return [] }
         if searchText.isEmpty {
-            return allRecipes
+            return recipes
         }
-        return allRecipes.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        return recipes.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
     
-    init(recipeService: RecipeService = RecipeService()) {
-        self.recipeService = recipeService
+    init(recipeService: RecipeService? = nil) {
+        self.recipeService = recipeService ?? RecipeService()
     }
     
-    func fetchRecipes() {
+    func fetchRecipes() async {
         viewState = .loading
-        
-        let recipes = recipeService.getAll()
-        
-        if recipes.isEmpty {
-            viewState = .empty
-        } else {
-            allRecipes = recipes
-            viewState = .success(recipes)
+        do {
+            let recipes = try await recipeService.getAll()
+            if recipes.isEmpty {
+                viewState = .empty
+            } else {
+                viewState = .success(recipes)
+            }
+        } catch {
+            viewState = .error(error)
         }
     }
     
-    func deleteRecipe(at offsets: IndexSet) {
-        let recipesToDelete = offsets.map { filteredRecipes[$0] }
+    func deleteRecipe(at offsets: IndexSet) async {
+        guard case .success(let recipes) = viewState else { return }
+        
+        let recipesToDelete = offsets.map { recipes[$0] }
         
         do {
             for recipe in recipesToDelete {
-                try recipeService.delete(recipe: recipe)
+                try await recipeService.delete(recipe: recipe)
             }
-            fetchRecipes()
+            await fetchRecipes()
         } catch {
             viewState = .error(error)
         }

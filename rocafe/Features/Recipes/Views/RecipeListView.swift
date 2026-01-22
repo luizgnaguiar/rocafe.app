@@ -3,7 +3,12 @@ import SwiftUI
 struct RecipeListView: View {
     
     @StateObject private var viewModel = RecipeListViewModel()
-    @State private var showErrorAlert = false
+    
+    // For error handling
+    @State private var errorToShow: IdentifiableError?
+    
+    // For delete confirmation
+    @State private var offsetsToDelete: IndexSet?
     
     var body: some View {
         VStack {
@@ -20,15 +25,34 @@ struct RecipeListView: View {
             content
         }
         .navigationTitle("Receitas")
-        .onAppear {
-            viewModel.fetchRecipes()
+        .task {
+            await viewModel.fetchRecipes()
         }
-        .alert(isPresented: $showErrorAlert) {
+        .onChange(of: viewModel.viewState) {
+            if case .error(let error) = viewModel.viewState {
+                self.errorToShow = IdentifiableError(error: error)
+            }
+        }
+        .alert(item: $errorToShow) { error in
             Alert(
                 title: Text("Erro"),
-                message: Text(viewModel.viewState.localizedErrorDescription),
+                message: Text(error.errorDescription ?? "Ocorreu um erro desconhecido."),
                 dismissButton: .default(Text("OK"))
             )
+        }
+        .confirmationDialog("Confirmar Exclusão", isPresented: Binding(
+            get: { offsetsToDelete != nil },
+            set: { if !$0 { offsetsToDelete = nil } }
+        ), presenting: offsetsToDelete) { offsets in
+            Button("Apagar Receita", role: .destructive) {
+                Task {
+                    await viewModel.deleteRecipe(at: offsets)
+                }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: { offsets in
+            let recipeName = viewModel.filteredRecipes[offsets.first!].name
+            Text("Tem certeza que deseja apagar '\(recipeName)'? Esta ação não pode ser desfeita.")
         }
     }
     
@@ -55,7 +79,9 @@ struct RecipeListView: View {
                         Text(recipe.totalCost, format: .currency(code: "BRL"))
                     }
                 }
-                .onDelete(perform: viewModel.deleteRecipe)
+                .onDelete { offsets in
+                    self.offsetsToDelete = offsets
+                }
             }
             .listStyle(InsetGroupedListStyle())
             
@@ -65,8 +91,10 @@ struct RecipeListView: View {
                 .frame(maxHeight: .infinity)
             
         case .error:
-            Color.clear.onAppear {
-                showErrorAlert = true
+            ContentUnavailableView {
+                Label("Falha ao Carregar", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text("Não foi possível carregar as receitas. Tente novamente mais tarde.")
             }
         }
     }

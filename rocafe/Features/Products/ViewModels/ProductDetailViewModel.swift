@@ -7,6 +7,7 @@ class ProductDetailViewModel: ObservableObject, StandardViewModel {
     @Published var viewState: ViewState<Product> = .idle
     @Published var product: Product
     
+    // Data for pickers
     @Published var allSuppliers: [Supplier] = []
     @Published var allRecipes: [Recipe] = []
     
@@ -16,62 +17,60 @@ class ProductDetailViewModel: ObservableObject, StandardViewModel {
     
     init(
         product: Product?,
-        productService: ProductService = ProductService(),
-        supplierService: SupplierService = SupplierService(),
-        recipeService: RecipeService = RecipeService()
+        productService: ProductService? = nil,
+        supplierService: SupplierService? = nil,
+        recipeService: RecipeService? = nil
     ) {
-        self.product = product ?? Product(id: nil, name: "", type: .finished, category: .ready, isActive: true)
-        self.productService = productService
-        self.supplierService = supplierService
-        self.recipeService = recipeService
+        self.product = product ?? Product(id: nil, name: "", type: .rawMaterial, isActive: true)
+        self.productService = productService ?? ProductService()
+        self.supplierService = supplierService ?? SupplierService()
+        self.recipeService = recipeService ?? RecipeService()
         
-        if product != nil {
-            self.viewState = .success(self.product)
+        if let existingProduct = product {
+            self.viewState = .success(existingProduct)
         }
     }
     
-    func fetchRequiredData() {
-        if case .success = viewState {
-             // Data is already loaded
-        } else {
-            viewState = .loading
-        }
+    func fetchRequiredData() async {
+        // Only fetch if we haven't loaded or failed before
+        if case .success = viewState { return }
         
-        // Fetch auxiliary data
-        self.allSuppliers = supplierService.getAll()
-        self.allRecipes = recipeService.getAll()
-        
-        if self.product.id == nil {
-            // This is a new product, no need to fetch it.
+        viewState = .loading
+        do {
+            // Fetch auxiliary data in parallel
+            async let suppliers = try supplierService.getAll()
+            async let recipes = try recipeService.getAll()
+            
+            self.allSuppliers = try await suppliers
+            self.allRecipes = try await recipes
+            
+            // If we're creating a new product, we're ready.
+            // If editing, the product is already loaded.
             viewState = .success(self.product)
-        }
-        // If it's an existing product, it's already loaded from the initializer.
-        // If we needed to fetch it by ID, we would do it here and update the state.
-    }
-    
-    func saveProduct() {
-        viewState = .loading
-        Task {
-            do {
-                var productToSave = self.product
-                try productService.save(product: &productToSave)
-                self.product = productToSave
-                viewState = .success(productToSave)
-            } catch {
-                viewState = .error(error)
-            }
+        } catch {
+            viewState = .error(error)
         }
     }
     
-    func deleteProduct() {
+    func saveProduct() async {
         viewState = .loading
-        Task {
-            do {
-                try productService.delete(product: self.product)
-                viewState = .success(self.product) // To signal dismissal
-            } catch {
-                viewState = .error(error)
-            }
+        do {
+            var productToSave = self.product
+            try await productService.save(product: &productToSave)
+            self.product = productToSave
+            viewState = .success(productToSave)
+        } catch {
+            viewState = .error(error)
+        }
+    }
+    
+    func deleteProduct() async {
+        viewState = .loading
+        do {
+            try await productService.delete(product: self.product)
+            viewState = .success(self.product) // To signal dismissal
+        } catch {
+            viewState = .error(error)
         }
     }
 }

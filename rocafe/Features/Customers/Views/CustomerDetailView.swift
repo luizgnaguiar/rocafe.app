@@ -45,7 +45,9 @@ struct CustomerDetailView: View {
                     titleVisibility: .visible
                 ) {
                     Button("Excluir Cliente", role: .destructive) {
-                        viewModel.deleteCustomer()
+                        Task {
+                            await viewModel.deleteCustomer()
+                        }
                     }
                     Button("Cancelar", role: .cancel) {}
                 }
@@ -118,7 +120,9 @@ struct CustomerDetailView: View {
             
             Section {
                 Button(action: {
-                    viewModel.saveCustomer()
+                    Task {
+                        await viewModel.saveCustomer()
+                    }
                 }) {
                     HStack {
                         Spacer()

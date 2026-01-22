@@ -33,3 +33,20 @@ struct DailyEntry: Codable, FetchableRecord, PersistableRecord, Identifiable {
         )
     }
 }
+
+extension DailyEntry {
+    enum Columns: String, ColumnExpression {
+        case id
+        case date
+        case salesCash
+        case salesCredit
+        case salesDebit
+        case salesPix
+        case receivedCash
+        case receivedCredit
+        case receivedDebit
+        case receivedPix
+        case createdAt
+        case updatedAt
+    }
+}

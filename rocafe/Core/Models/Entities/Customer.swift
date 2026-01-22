@@ -18,3 +18,21 @@ struct Customer: Codable, FetchableRecord, PersistableRecord, Identifiable {
     
     static var databaseTableName = "customer"
 }
+
+extension Customer {
+    enum Columns: String, ColumnExpression {
+        case id
+        case name
+        case cpf
+        case phone
+        case email
+        case address
+        case city
+        case state
+        case zipCode
+        case notes
+        case isActive
+        case createdAt
+        case updatedAt
+    }
+}

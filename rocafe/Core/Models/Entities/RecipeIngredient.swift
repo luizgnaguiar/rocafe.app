@@ -23,3 +23,14 @@ struct RecipeIngredient: Codable, FetchableRecord, PersistableRecord, Identifiab
         return belongsTo(Recipe.self, key: "ingredientRecipeId")
     }
 }
+
+extension RecipeIngredient {
+    enum Columns: String, ColumnExpression {
+        case id
+        case recipeId
+        case ingredientType
+        case ingredientProductId
+        case ingredientRecipeId
+        case quantity
+    }
+}

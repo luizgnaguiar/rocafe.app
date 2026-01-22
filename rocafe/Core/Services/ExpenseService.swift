@@ -1,22 +1,7 @@
 import Foundation
+import GRDB
 
-enum ExpenseServiceError: Error, LocalizedError {
-    case expenseNotFound(id: Int64)
-    case descriptionIsEmpty
-    case invalidAmount(amount: Decimal)
-    
-    var errorDescription: String? {
-        switch self {
-        case .expenseNotFound(let id):
-            return "A despesa com o ID \(id) não foi encontrada."
-        case .descriptionIsEmpty:
-            return "A descrição da despesa é obrigatória."
-        case .invalidAmount(let amount):
-            return "O valor da despesa (\(amount)) deve ser maior que zero."
-        }
-    }
-}
-
+@MainActor
 class ExpenseService {
     
     private let recurringExpenseRepo: RecurringExpenseRepository
@@ -30,48 +15,65 @@ class ExpenseService {
         self.expenseRepo = expenseRepo
     }
     
-    /// Saves an expense after validating its business rules.
-    /// - Parameter expense: The expense to be saved.
-    /// - Throws: `ExpenseServiceError` if validation fails.
-    func save(expense: inout Expense) throws {
-        // Business logic validation lives here, not in the ViewModel.
+    func save(expense: inout Expense) async throws {
         if expense.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw ExpenseServiceError.descriptionIsEmpty
         }
         if expense.amount <= 0 {
-            throw ExpenseServiceError.invalidAmount(amount: expense.amount)
+            throw ExpenseServiceError.invalidAmount
         }
         
-        try expenseRepo.save(&expense)
+        var expenseToSave = expense
+        try await Task {
+            try expenseRepo.save(&expenseToSave)
+        }.value
+        expense = expenseToSave
     }
     
-    /// Checks for and generates any recurring expenses that are due for the current month.
-    /// This should be called on app launch or on a regular basis.
-    func generateMonthlyExpenses() {
-        // --- Placeholder Logic ---
-        // 1. Get all active recurring expenses from the repository.
-        // 2. For each recurring expense, check if an expense has already been
-        //    generated for the current month and year.
-        // 3. If not, create a new Expense object based on the RecurringExpense template.
-        //    - Set the due date based on the 'dayOfMonth'.
-        //    - Set the description, category, amount, etc.
-        // 4. Save the new Expense to the database using the expense repository.
-        //
-        // This process requires careful handling of dates and timezones to be robust.
-        print("Checking for and generating recurring expenses...")
-    }
-    
-    /// Marks a specific expense as paid.
-    /// - Parameters:
-    ///   - expenseId: The ID of the expense to mark as paid.
-    ///   - paymentDate: The date the expense was paid.
-    func payExpense(expenseId: Int64, paymentDate: Date) throws {
-        guard var expense = expenseRepo.get(id: expenseId) else {
-            throw ExpenseServiceError.expenseNotFound(id: expenseId)
+    func payExpense(expenseId: Int64, paymentDate: Date) async throws {
+        guard var expense = try await Task({ try expenseRepo.get(id: expenseId) }).value else {
+            throw ExpenseServiceError.notFound
         }
         
         expense.isPaid = true
         expense.paymentDate = paymentDate
-        try expenseRepo.save(&expense)
+        
+        try await save(expense: &expense)
+    }
+
+    func delete(expense: Expense) async throws {
+        guard let expenseId = expense.id else { return }
+        let success = try await Task {
+            try expenseRepo.delete(id: expenseId)
+        }.value
+        if !success {
+            throw ExpenseServiceError.deleteFailed
+        }
+    }
+    
+    func generateMonthlyExpenses() async throws {
+        // --- Placeholder Logic ---
+        // This should be implemented using the async repositories.
+        print("Checking for and generating recurring expenses...")
+    }
+}
+
+enum ExpenseServiceError: LocalizedError {
+    case notFound
+    case descriptionIsEmpty
+    case invalidAmount
+    case deleteFailed
+    
+    var errorDescription: String? {
+        switch self {
+        case .notFound:
+            return "A despesa não foi encontrada."
+        case .descriptionIsEmpty:
+            return "A descrição da despesa é obrigatória."
+        case .invalidAmount:
+            return "O valor da despesa deve ser maior que zero."
+        case .deleteFailed:
+            return "Falha ao deletar a despesa."
+        }
     }
 }

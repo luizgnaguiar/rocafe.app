@@ -17,3 +17,16 @@ struct Recipe: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let ingredients = hasMany(RecipeIngredient.self)
     static let versions = hasMany(RecipeVersion.self)
 }
+
+extension Recipe {
+    enum Columns: String, ColumnExpression {
+        case id
+        case productId
+        case name
+        case version
+        case totalCost
+        case isActive
+        case createdAt
+        case updatedAt
+    }
+}

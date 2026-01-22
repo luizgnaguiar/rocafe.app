@@ -45,20 +45,18 @@ class ProductListViewModel: ObservableObject, StandardViewModel {
         }
     }
     
-    func deleteProduct(at offsets: IndexSet) {
+    func deleteProduct(at offsets: IndexSet) async {
         guard case .success(let products) = viewState else { return }
         
-        Task {
-            let productsToDelete = offsets.map { products[$0] }
-            
-            do {
-                for product in productsToDelete {
-                    try await productService.delete(product: product)
-                }
-                await fetchProducts() // Refetch to update the UI
-            } catch {
-                viewState = .error(error)
+        let productsToDelete = offsets.map { products[$0] }
+        
+        do {
+            for product in productsToDelete {
+                try await productService.delete(product: product)
             }
+            await fetchProducts() // Refetch to update the UI
+        } catch {
+            viewState = .error(error)
         }
     }
 }
