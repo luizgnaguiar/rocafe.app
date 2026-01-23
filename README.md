@@ -1,6 +1,6 @@
-# rocafe.app - PDV Enxuto para macOS
+# rocafe.app - ERP simples para macOS
 
-Este é o código-fonte para o projeto `rocafe.app`, um sistema de Ponto de Venda (PDV) simplificado para macOS, gerado com base em uma arquitetura detalhada.
+Este é o código-fonte para o projeto `rocafe.app`, um ERP simples para macOS, gerado com base em uma arquitetura detalhada.
 
 ## Visão Geral
 
